@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Merchant } from '../types';
-import { Check, Upload, Clock, User, FileText, ChevronRight, LogOut, Camera, Phone } from 'lucide-react';
+import { Check, Upload, Clock, User, FileText, ChevronRight, LogOut, Camera, Phone, Lock } from 'lucide-react';
 import { MERCHANTS, STAFF_LIST } from '../mockData';
+
+const MERCHANT_CODE = "5678";
 
 const Steps = [
   { id: 1, title: '信息确认' },
@@ -14,39 +16,25 @@ const MerchantView: React.FC = () => {
   const [user, setUser] = useState<Merchant | null>(null);
   const [step, setStep] = useState(1);
   const [isLogin, setIsLogin] = useState(true);
-  const [isRegistering, setIsRegistering] = useState(false);
   
   // Auth Form State
-  const [licenceInput, setLicenceInput] = useState('410710000001'); // Using new mock data format
   const [phoneInput, setPhoneInput] = useState('');
-  const [nameInput, setNameInput] = useState(''); // New Name Field
+  const [codeInput, setCodeInput] = useState('');
 
   const handleLogin = () => {
-    // Mock login logic - finding a user from the generated list
-    // For demo, we just grab the first merchant if input is empty or specific
-    let found = MERCHANTS.find(m => m.licenseNo === licenceInput);
-    
-    // If mocking registration, we "create" a session for a new user
-    if (isRegistering) {
-        if(!licenceInput || !phoneInput || !nameInput) {
-            alert("请填写完整信息");
-            return;
-        }
-        // Simulate finding the task that was pre-assigned to this license
-        // In this mock, we just log them in as a pending user "m_active_0" if not found
-        if (!found) found = MERCHANTS.find(m => m.id === 'm_active_0');
-        if (found) {
-             // Update mock data in memory for this session
-             found.ownerName = nameInput;
-             found.phone = phoneInput;
-        }
-    } else {
-        // Simple Login Check
-        if (!found) {
-            // Fallback for demo
-            found = MERCHANTS.find(m => m.id === 'm_active_0');
-        }
+    if (!phoneInput || !codeInput) {
+      alert("请输入手机号和专用码");
+      return;
     }
+
+    // 1. Check Code
+    if (codeInput !== MERCHANT_CODE) {
+      alert("商户专用码错误 (演示: 5678)");
+      return;
+    }
+
+    // 2. Check if phone exists in DB
+    const found = MERCHANTS.find(m => m.phone === phoneInput.trim());
 
     if (found) {
       setUser(found);
@@ -56,7 +44,7 @@ const MerchantView: React.FC = () => {
       else if (['auditing', 'approved', 'delivering'].includes(found.status)) setStep(3);
       else setStep(1);
     } else {
-      alert("未找到该证号任务，请联系辖区市场监管员");
+      alert("登录失败：系统中未找到该手机号。请联系市场监管员确认信息是否已录入。");
     }
   };
 
@@ -74,63 +62,45 @@ const MerchantView: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          {isRegistering && (
-             <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">经营负责人姓名</label>
-                <input 
-                type="text" 
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="请输入姓名"
-                />
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <Phone className="w-3 h-3 inline mr-1" />预留手机号码
+            </label>
+            <input 
+              type="tel" 
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="请输入管理员预设的手机号"
+            />
+            <p className="text-xs text-gray-400 mt-1 ml-1">演示账号：13800000001</p>
+          </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">烟草专卖零售许可证号</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <Lock className="w-3 h-3 inline mr-1" />商户专用码
+            </label>
             <input 
-              type="text" 
-              value={licenceInput}
-              onChange={(e) => setLicenceInput(e.target.value)}
+              type="password" 
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="请输入证号"
+              placeholder="请输入商户专用码"
             />
+             <p className="text-xs text-gray-400 mt-1 ml-1">演示专用码：5678</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">手机号码</label>
-            <div className="flex gap-2">
-              <input 
-                type="tel" 
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="请输入手机号"
-              />
-              <button className="bg-gray-100 text-gray-600 px-4 rounded-lg text-sm font-medium whitespace-nowrap">
-                获取验证码
-              </button>
-            </div>
-          </div>
+          
           <button 
             onClick={handleLogin}
-            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200"
+            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 mt-4"
           >
-            {isRegistering ? '立即注册' : '立即登录'}
+            立即登录
           </button>
-          
-          <div className="text-center pt-2">
-             <button 
-                onClick={() => setIsRegistering(!isRegistering)}
-                className="text-blue-600 text-sm font-medium"
-             >
-                {isRegistering ? '已有账号？去登录' : '首次办理？去注册'}
-             </button>
-          </div>
         </div>
 
-        <div className="mt-8 text-center text-xs text-gray-400">
-          <p>如遇操作困难，请联系市场监管员协助</p>
+        <div className="mt-8 text-center text-xs text-gray-400 bg-gray-50 p-4 rounded-lg">
+          <p className="font-bold mb-1">无法登录？</p>
+          <p>请联系辖区市场监管员核实您的手机号是否已录入系统。</p>
           <p className="mt-2">新乡市烟草专卖局</p>
         </div>
       </div>
@@ -148,7 +118,7 @@ const MerchantView: React.FC = () => {
             <h2 className="text-xl font-bold">{user.name}</h2>
             <p className="text-blue-100 text-sm mt-1">证号: {user.licenseNo}</p>
           </div>
-          <button onClick={() => setIsLogin(true)} className="p-2 bg-blue-500 rounded-full hover:bg-blue-400">
+          <button onClick={() => { setIsLogin(true); setCodeInput(""); setPhoneInput(""); }} className="p-2 bg-blue-500 rounded-full hover:bg-blue-400">
             <LogOut className="w-4 h-4" />
           </button>
         </div>

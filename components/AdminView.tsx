@@ -1,41 +1,55 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { Users, FileCheck, AlertTriangle, Activity, MapPin, Upload, FileSpreadsheet, Filter, Calendar } from 'lucide-react';
+import { Users, FileCheck, AlertTriangle, Activity, MapPin, Upload, FileSpreadsheet, Filter, Calendar, Download, Plus, Save } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { STAFF_LIST, MERCHANTS, CURRENT_SYSTEM_TIME } from '../mockData';
-import { District, TaskStatus } from '../types';
+import { District, TaskStatus, Merchant } from '../types';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
 const AdminView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'management'>('dashboard');
   
+  // Data State (Initialized with Mock Data, but mutable)
+  const [merchantList, setMerchantList] = useState<Merchant[]>(MERCHANTS);
+
   // Filters
   const [selectedDistrict, setSelectedDistrict] = useState<District | 'All'>('All');
-  const [selectedMonth, setSelectedMonth] = useState<string>('All'); // '2025-01', '2025-02'... or 'All'
+  const [selectedMonth, setSelectedMonth] = useState<string>('All');
+
+  // Single Entry Form State
+  const [newMerchant, setNewMerchant] = useState({
+    name: '',
+    licenseNo: '',
+    district: '牧野' as District,
+    expireDate: '',
+    ownerName: '',
+    phone: '',
+    address: ''
+  });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Mock Months for 2025
   const months2025 = Array.from({ length: 12 }, (_, i) => `2025-${String(i + 1).padStart(2, '0')}`);
 
-  // Derived Data
+  // --- Logic: Derived Data ---
   const filteredMerchants = useMemo(() => {
-    return MERCHANTS.filter(m => {
+    return merchantList.filter(m => {
       const matchDistrict = selectedDistrict === 'All' || m.district === selectedDistrict;
-      // Filter by expiry date month roughly
       const matchMonth = selectedMonth === 'All' || m.expireDate.startsWith(selectedMonth);
       return matchDistrict && matchMonth;
     });
-  }, [selectedDistrict, selectedMonth]);
+  }, [selectedDistrict, selectedMonth, merchantList]);
 
   const filteredStaff = useMemo(() => {
     return STAFF_LIST.filter(s => selectedDistrict === 'All' || s.area === selectedDistrict);
   }, [selectedDistrict]);
 
-  // Stats Calculation
   const stats = useMemo(() => {
     const total = filteredMerchants.length;
     const completed = filteredMerchants.filter(m => m.status === 'completed').length;
     const rejected = filteredMerchants.filter(m => m.status === 'rejected').length;
-    // Avg time dummy calculation
     const avgTime = 3.5; 
     
     return {
@@ -47,7 +61,6 @@ const AdminView: React.FC = () => {
     };
   }, [filteredMerchants]);
 
-  // Chart Data
   const pieData = [
     { name: '已完成', value: filteredMerchants.filter(m => m.status === 'completed').length },
     { name: '办理中', value: filteredMerchants.filter(m => ['scheduled', 'visited', 'auditing', 'delivering'].includes(m.status)).length },
@@ -55,17 +68,14 @@ const AdminView: React.FC = () => {
     { name: '待处理', value: filteredMerchants.filter(m => m.status === 'pending').length },
   ].filter(d => d.value > 0);
 
-  // Group by District for Bar Chart
   const barData = useMemo(() => {
     if (selectedDistrict !== 'All') {
-      // If specific district selected, show Staff performance
       return filteredStaff.map(s => ({
         name: s.name,
-        已办结: MERCHANTS.filter(m => m.staffId === s.id && m.status === 'completed').length,
-        处理中: MERCHANTS.filter(m => m.staffId === s.id && m.status !== 'completed').length,
+        已办结: merchantList.filter(m => m.staffId === s.id && m.status === 'completed').length,
+        处理中: merchantList.filter(m => m.staffId === s.id && m.status !== 'completed').length,
       }));
     } else {
-      // Show District performance
       const districts: District[] = ['牧野', '红旗', '开发', '卫滨', '凤泉'];
       return districts.map(d => ({
         name: d,
@@ -73,7 +83,118 @@ const AdminView: React.FC = () => {
         总量: filteredMerchants.filter(m => m.district === d).length,
       }));
     }
-  }, [selectedDistrict, filteredStaff, filteredMerchants]);
+  }, [selectedDistrict, filteredStaff, filteredMerchants, merchantList]);
+
+  // --- Logic: Excel Handlers ---
+
+  const downloadTemplate = () => {
+    const header = [
+      ['商户名称', '烟草证号', '负责人姓名', '所属队所', '经营地址', '联系电话', '许可证有效期(YYYY-MM-DD)']
+    ];
+    // Add a sample row
+    const data = [
+      ['示例商户超市', '410700000000', '张三', '牧野', '新乡市牧野区XX路XX号', '13800138000', '2026-03-01']
+    ];
+    
+    const ws = XLSX.utils.aoa_to_sheet([...header, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "导入模版");
+    XLSX.writeFile(wb, "商户导入模版.xlsx");
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsName = wb.SheetNames[0];
+      const ws = wb.Sheets[wsName];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+      // Basic validation: Check header row
+      const headers = data[0] as string[];
+      if (!headers || headers[0] !== '商户名称') {
+        alert('上传失败：模版格式不正确，请下载最新模版。');
+        return;
+      }
+
+      const newMerchants: Merchant[] = [];
+      // Skip header, process rows
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i] as any[];
+        if (!row || row.length === 0) continue;
+
+        // Map columns to Merchant object
+        const districtName = row[3] || '牧野';
+        const expireDate = row[6] || '2026-01-01';
+        
+        // Calculate days remaining roughly
+        const diff = new Date(expireDate).getTime() - new Date(CURRENT_SYSTEM_TIME).getTime();
+        const days = Math.ceil(diff / (1000 * 3600 * 24));
+
+        const newItem: Merchant = {
+          id: `m_import_${Date.now()}_${i}`,
+          name: row[0],
+          licenseNo: row[1] ? String(row[1]) : `4107${Date.now()}`,
+          ownerName: row[2],
+          district: districtName as District,
+          address: row[4],
+          phone: row[5] ? String(row[5]) : '',
+          expireDate: expireDate,
+          daysRemaining: days,
+          status: 'pending',
+          staffId: '', // Auto-assign could happen here, leaving empty for now
+          history: []
+        };
+        newMerchants.push(newItem);
+      }
+
+      setMerchantList(prev => [...newMerchants, ...prev]);
+      alert(`成功导入 ${newMerchants.length} 条商户数据！`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleSingleAdd = () => {
+    if (!newMerchant.name || !newMerchant.licenseNo || !newMerchant.expireDate) {
+      alert("请至少填写商户名称、烟草证号和有效期");
+      return;
+    }
+
+    const diff = new Date(newMerchant.expireDate).getTime() - new Date(CURRENT_SYSTEM_TIME).getTime();
+    const days = Math.ceil(diff / (1000 * 3600 * 24));
+
+    const newItem: Merchant = {
+      id: `m_manual_${Date.now()}`,
+      name: newMerchant.name,
+      licenseNo: newMerchant.licenseNo,
+      ownerName: newMerchant.ownerName,
+      district: newMerchant.district,
+      address: newMerchant.address,
+      phone: newMerchant.phone,
+      expireDate: newMerchant.expireDate,
+      daysRemaining: days,
+      status: 'pending',
+      staffId: '', // Ideally assign to a random staff in that district
+      history: []
+    };
+
+    setMerchantList(prev => [newItem, ...prev]);
+    alert("商户录入成功！");
+    setNewMerchant({
+      name: '',
+      licenseNo: '',
+      district: '牧野',
+      expireDate: '',
+      ownerName: '',
+      phone: '',
+      address: ''
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -284,7 +405,9 @@ const AdminView: React.FC = () => {
                             <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{s.area}</span>
                           </td>
                           <td className="p-3 text-gray-500">{s.phone}</td>
-                          <td className="p-3 font-bold text-green-600">{s.completedTasks}</td>
+                          <td className="p-3 font-bold text-green-600">{
+                            merchantList.filter(m => m.staffId === s.id && m.status === 'completed').length
+                          }</td>
                         </tr>
                       ))}
                     </tbody>
@@ -340,50 +463,130 @@ const AdminView: React.FC = () => {
         ) : (
           /* Management Tab */
           <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center">
+            <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center relative">
                <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
                  <FileSpreadsheet className="w-10 h-10 text-blue-600" />
                </div>
                <h2 className="text-xl font-bold text-gray-800 mb-2">批量导入商户数据</h2>
                <p className="text-gray-500 mb-6">
-                 请上传 Excel 文件，需包含：商户名称、烟草证号、有效期、联系电话、所属队所、经营地址、负责人姓名。
+                 支持 .xlsx 格式文件。请先下载模版，按格式填入数据后上传。
                </p>
-               <button 
-                 onClick={() => alert("模拟功能：数据导入成功！新增 128 条商户数据。")}
-                 className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium shadow-lg shadow-blue-200 flex items-center gap-2 mx-auto"
-               >
-                 <Upload className="w-5 h-5" />
-                 点击上传文件
-               </button>
+               
+               <div className="flex justify-center gap-4">
+                 <button 
+                   onClick={downloadTemplate}
+                   className="bg-white border border-gray-300 text-gray-700 px-6 py-2 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2"
+                 >
+                   <Download className="w-4 h-4" />
+                   下载Excel模版
+                 </button>
+                 
+                 <div className="relative">
+                   <button 
+                     onClick={() => fileInputRef.current?.click()}
+                     className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-lg font-medium shadow-lg shadow-blue-200 flex items-center gap-2"
+                   >
+                     <Upload className="w-4 h-4" />
+                     上传 Excel 文件
+                   </button>
+                   <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleFileUpload} 
+                      accept=".xlsx, .xls"
+                      className="hidden" 
+                   />
+                 </div>
+               </div>
             </div>
 
             <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-               <h3 className="text-lg font-bold text-gray-800 mb-6 border-b pb-2">单个商户录入</h3>
+               <div className="flex justify-between items-center mb-6 border-b pb-4">
+                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                   <Plus className="w-5 h-5 text-blue-600" />
+                   单个商户录入
+                 </h3>
+               </div>
+               
                <div className="grid grid-cols-2 gap-4">
                  <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">商户名称</label>
-                   <input type="text" className="w-full border border-gray-300 rounded p-2" />
+                   <label className="block text-sm font-medium text-gray-700 mb-1">商户名称 <span className="text-red-500">*</span></label>
+                   <input 
+                      type="text" 
+                      value={newMerchant.name}
+                      onChange={e => setNewMerchant({...newMerchant, name: e.target.value})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                      placeholder="如：红旗区乐家便利店"
+                   />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">烟草许可证号 <span className="text-red-500">*</span></label>
+                   <input 
+                      type="text" 
+                      value={newMerchant.licenseNo}
+                      onChange={e => setNewMerchant({...newMerchant, licenseNo: e.target.value})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="12位许可证号"
+                   />
                  </div>
                  <div>
                    <label className="block text-sm font-medium text-gray-700 mb-1">所属队所</label>
-                    <select className="w-full border border-gray-300 rounded p-2">
-                      <option>牧野</option>
-                      <option>红旗</option>
-                      <option>开发</option>
-                      <option>卫滨</option>
-                      <option>凤泉</option>
+                    <select 
+                      value={newMerchant.district}
+                      onChange={e => setNewMerchant({...newMerchant, district: e.target.value as District})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="牧野">牧野</option>
+                      <option value="红旗">红旗</option>
+                      <option value="开发">开发</option>
+                      <option value="卫滨">卫滨</option>
+                      <option value="凤泉">凤泉</option>
                     </select>
                  </div>
                  <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">许可证有效期</label>
-                   <input type="date" className="w-full border border-gray-300 rounded p-2" />
+                   <label className="block text-sm font-medium text-gray-700 mb-1">许可证有效期 <span className="text-red-500">*</span></label>
+                   <input 
+                      type="date" 
+                      value={newMerchant.expireDate}
+                      onChange={e => setNewMerchant({...newMerchant, expireDate: e.target.value})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                   />
                  </div>
                  <div>
-                   <label className="block text-sm font-medium text-gray-700 mb-1">指派监管员</label>
-                   <input type="text" placeholder="输入姓名自动检索" className="w-full border border-gray-300 rounded p-2" />
+                   <label className="block text-sm font-medium text-gray-700 mb-1">负责人姓名</label>
+                   <input 
+                      type="text" 
+                      value={newMerchant.ownerName}
+                      onChange={e => setNewMerchant({...newMerchant, ownerName: e.target.value})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                   />
+                 </div>
+                 <div>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">联系电话</label>
+                   <input 
+                      type="text" 
+                      value={newMerchant.phone}
+                      onChange={e => setNewMerchant({...newMerchant, phone: e.target.value})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                   />
                  </div>
                  <div className="col-span-2">
-                    <button className="w-full bg-gray-800 text-white py-2 rounded hover:bg-gray-900">保存录入</button>
+                   <label className="block text-sm font-medium text-gray-700 mb-1">经营地址</label>
+                   <input 
+                      type="text" 
+                      value={newMerchant.address}
+                      onChange={e => setNewMerchant({...newMerchant, address: e.target.value})}
+                      className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+                   />
+                 </div>
+                 <div className="col-span-2 mt-4">
+                    <button 
+                      onClick={handleSingleAdd}
+                      className="w-full bg-gray-800 text-white py-3 rounded-lg hover:bg-gray-900 flex items-center justify-center gap-2 font-bold"
+                    >
+                      <Save className="w-5 h-5" />
+                      保存并录入任务池
+                    </button>
                  </div>
                </div>
             </div>
